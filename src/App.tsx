@@ -6,74 +6,124 @@ import { generateClient } from "aws-amplify/data";
 const client = generateClient<Schema>();
 
 function App() {
-  const [todos, setTodos] = useState<Array<Schema["Todo"]["type"]>>([]);
+  const [EmailForwards, setTodos] = useState<Array<Schema["EmailForwards"]["type"]>>([]);
   const { user, signOut } = useAuthenticator();
 
-  // Add state for form fields
-  const [email, setEmail] = useState("");
-  const [destinationEmail, setDestinationEmail] = useState("");
+  // Add state for new source and destination
+  const [newSource, setNewSource] = useState("");
+  //const [newDestination, setNewDestination] = useState("");
 
   useEffect(() => {
-    client.models.Todo.observeQuery().subscribe({
+    client.models.EmailForwards.observeQuery().subscribe({
       next: (data) => setTodos([...data.items]),
     });
   }, []);
 
-  function createTodo() {
-    client.models.Todo.create({ content: window.prompt("Todo content"),source: "source@source.com", destination: "dest@dest.com" });
+  function deleteForward(id: string) {
+    if (window.confirm("Are you sure you want to delete this destination?")) {
+      client.models.EmailForwards.delete({ id });
+    }
   }
 
-  function deleteTodo(id: string) {
-    client.models.Todo.delete({ id })
+  // Add this function to delete all forwards for a source
+  function deleteGroup(source: string) {
+    if (window.confirm(`Are you sure you want to delete all destinations for "${source}"?`)) {
+      const toDelete = EmailForwards.filter(item => item.source === source);
+      toDelete.forEach(item => {
+        if (item.id) {
+          client.models.EmailForwards.delete({ id: item.id });
+        }
+      });
+    }
   }
 
-  // Handle form submission
-  function handleFormSubmit(e: React.FormEvent) {
+  // Handler for new source/destination form
+  function handleNewSourceSubmit(e: React.FormEvent) {
     e.preventDefault();
-    console.log("Email:", email);
-    console.log("Destination Email:", destinationEmail);
-    // You can add your backend logic here
-    setEmail("");
-    setDestinationEmail("");
+    if (!newSource) return;
+    client.models.EmailForwards.create({
+      source: newSource,
+      destination: "DEFAULT",
+    });
+    setNewSource("");
+    //setNewDestination("");
   }
+
+  // Group EmailForwards by source
+  const groupedEmailForwards = EmailForwards.reduce((acc, item) => {
+    if (!item || !item.source) return acc; // <-- Add this line
+    if (!acc[item.source]) acc[item.source] = [];
+    acc[item.source].push(item);
+    return acc;
+  }, {} as Record<string, Schema["EmailForwards"]["type"][]>);
 
   return (
     <main>
       <h1>{user?.signInDetails?.loginId}'s todos</h1>
 
-      {/* Email form */}
-      <form onSubmit={handleFormSubmit} style={{ marginBottom: "1rem" }}>
+      {/* New Source/Destination Form */}
+      <form onSubmit={handleNewSourceSubmit} style={{ marginBottom: "1rem" }}>
         <input
           type="email"
-          placeholder="Your email"
-          value={email}
-          onChange={e => setEmail(e.target.value)}
+          placeholder="New source email"
+          value={newSource}
+          onChange={e => setNewSource(e.target.value)}
           required
         />
-        <input
-          type="email"
-          placeholder="Destination email"
-          value={destinationEmail}
-          onChange={e => setDestinationEmail(e.target.value)}
-          required
-        />
-        <button type="submit">Submit</button>
+        <button type="submit">Add Mapping</button>
       </form>
 
-      <button onClick={createTodo}>+ new</button>
-      <ul>
-        {todos.map((todo) => (
-          <li onClick={() => deleteTodo(todo.id)}
-          key={todo.id}>{todo.content}</li>
-        ))}
-      </ul>
-      <div>
-        🥳 App successfully hosted. Try creating a new todo.
-        <br />
-        <a href="https://docs.amplify.aws/react/start/quickstart/#make-frontend-updates">
-          Review next step of this tutorial.
-        </a>
-      </div>
+      {/* Grouped display */}
+      {Object.entries(groupedEmailForwards).map(([source, todos]) => {
+        const filteredTodos = todos.filter(todo => todo.destination !== "DEFAULT");
+        return (
+          <div key={source} style={{ marginBottom: "1rem" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <h3 style={{ margin: 0 }}>{source}</h3>
+              <button
+                style={{ marginLeft: "auto" }}
+                onClick={() => deleteGroup(source)}
+              >
+                Delete Group
+              </button>
+            </div>
+            <ul>
+              {filteredTodos.length > 0 ? (
+                filteredTodos.map(todo => (
+                  <li
+                    key={todo.id}
+                    style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
+                  >
+                    {todo.destination}
+                    <button
+                      style={{ marginLeft: "auto" }}
+                      onClick={() => deleteForward(todo.id)}
+                    >
+                      Delete
+                    </button>
+                  </li>
+                ))
+              ) : (
+                <li>No Destinations</li>
+              )}
+            </ul>
+            <button
+              onClick={() => {
+                const destination = window.prompt(`Enter destination email for ${source}`);
+                if (destination) {
+                  client.models.EmailForwards.create({
+                    source,
+                    destination,
+                  });
+                }
+              }}
+            >
+              Add Destination
+            </button>
+          </div>
+        );
+      })}
+
       <button onClick={signOut}>Sign out</button>
     </main>
   );
